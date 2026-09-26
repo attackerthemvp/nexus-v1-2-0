@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as DevicesRouteImport } from './routes/devices'
 import { Route as ProviderHealthRouteImport } from './routes/provider-health'
 import { Route as ApiAiStatusRouteImport } from './routes/api/ai-status'
+import { Route as ApiArtemisLlmRouteImport } from './routes/api/artemis-llm'
 import { Route as ApiChatRouteImport } from './routes/api/chat'
 import { Route as ApiWebsearchRouteImport } from './routes/api/websearch'
 import { Route as ChatChatIdRouteImport } from './routes/chat.$chatId'
@@ -37,6 +38,11 @@ const ApiAiStatusRoute = ApiAiStatusRouteImport.update({
   path: '/api/ai-status',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiArtemisLlmRoute = ApiArtemisLlmRouteImport.update({
+  id: '/api/artemis-llm',
+  path: '/api/artemis-llm',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiChatRoute = ApiChatRouteImport.update({
   id: '/api/chat',
   path: '/api/chat',
@@ -58,6 +64,7 @@ export interface FileRoutesByFullPath {
   '/devices': typeof DevicesRoute
   '/provider-health': typeof ProviderHealthRoute
   '/api/ai-status': typeof ApiAiStatusRoute
+  '/api/artemis-llm': typeof ApiArtemisLlmRoute
   '/api/chat': typeof ApiChatRoute
   '/api/websearch': typeof ApiWebsearchRoute
   '/chat/$chatId': typeof ChatChatIdRoute
@@ -67,6 +74,7 @@ export interface FileRoutesByTo {
   '/devices': typeof DevicesRoute
   '/provider-health': typeof ProviderHealthRoute
   '/api/ai-status': typeof ApiAiStatusRoute
+  '/api/artemis-llm': typeof ApiArtemisLlmRoute
   '/api/chat': typeof ApiChatRoute
   '/api/websearch': typeof ApiWebsearchRoute
   '/chat/$chatId': typeof ChatChatIdRoute
@@ -77,6 +85,7 @@ export interface FileRoutesById {
   '/devices': typeof DevicesRoute
   '/provider-health': typeof ProviderHealthRoute
   '/api/ai-status': typeof ApiAiStatusRoute
+  '/api/artemis-llm': typeof ApiArtemisLlmRoute
   '/api/chat': typeof ApiChatRoute
   '/api/websearch': typeof ApiWebsearchRoute
   '/chat/$chatId': typeof ChatChatIdRoute
@@ -88,6 +97,7 @@ export interface FileRouteTypes {
     | '/devices'
     | '/provider-health'
     | '/api/ai-status'
+    | '/api/artemis-llm'
     | '/api/chat'
     | '/api/websearch'
     | '/chat/$chatId'
@@ -97,6 +107,7 @@ export interface FileRouteTypes {
     | '/devices'
     | '/provider-health'
     | '/api/ai-status'
+    | '/api/artemis-llm'
     | '/api/chat'
     | '/api/websearch'
     | '/chat/$chatId'
@@ -106,6 +117,7 @@ export interface FileRouteTypes {
     | '/devices'
     | '/provider-health'
     | '/api/ai-status'
+    | '/api/artemis-llm'
     | '/api/chat'
     | '/api/websearch'
     | '/chat/$chatId'
@@ -116,6 +128,7 @@ export interface RootRouteChildren {
   DevicesRoute: typeof DevicesRoute
   ProviderHealthRoute: typeof ProviderHealthRoute
   ApiAiStatusRoute: typeof ApiAiStatusRoute
+  ApiArtemisLlmRoute: typeof ApiArtemisLlmRoute
   ApiChatRoute: typeof ApiChatRoute
   ApiWebsearchRoute: typeof ApiWebsearchRoute
   ChatChatIdRoute: typeof ChatChatIdRoute
@@ -151,6 +164,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAiStatusRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/artemis-llm': {
+      id: '/api/artemis-llm'
+      path: '/api/artemis-llm'
+      fullPath: '/api/artemis-llm'
+      preLoaderRoute: typeof ApiArtemisLlmRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/chat': {
       id: '/api/chat'
       path: '/api/chat'
@@ -180,6 +200,7 @@ const rootRouteChildren: RootRouteChildren = {
   DevicesRoute: DevicesRoute,
   ProviderHealthRoute: ProviderHealthRoute,
   ApiAiStatusRoute: ApiAiStatusRoute,
+  ApiArtemisLlmRoute: ApiArtemisLlmRoute,
   ApiChatRoute: ApiChatRoute,
   ApiWebsearchRoute: ApiWebsearchRoute,
   ChatChatIdRoute: ChatChatIdRoute,
