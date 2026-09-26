@@ -54,6 +54,7 @@ function operatorSystem(ctx: ArtemisContext, available: Set<string>) {
 
 export async function runPro(ctx: ArtemisContext): Promise<ProResult> {
   ctx.step = 0;
+  pendingMilestones = [];
   await observe(ctx);
   await runInitialPlanner(ctx);
 
