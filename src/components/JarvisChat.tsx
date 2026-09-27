@@ -696,6 +696,15 @@ export function JarvisChat({
                 expandTools={settings.chat.expandToolCards}
               />
             ))}
+            {artemisEvents.length > 0 && (
+              <ArtemisController
+                events={artemisEvents}
+                pending={artemisPending}
+                onConfirm={answerConfirm}
+                onStop={stopRun}
+                running={artemisRunning}
+              />
+            )}
             {thinking && (
               <div className="flex items-center gap-2 text-primary text-sm">
                 <span className="animate-blink">●</span>
@@ -724,6 +733,23 @@ export function JarvisChat({
                 rows={2}
                 className="w-full resize-none rounded-md bg-input/60 border border-border px-4 py-3 font-mono text-sm text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:border-primary focus:shadow-[0_0_0_3px_var(--jarvis-glow-soft)] transition"
               />
+            </div>
+            <div role="radiogroup" aria-label="Artemis phone mode" className="flex h-12 rounded-md border border-border overflow-hidden" title="Artemis phone-control mode. Only you change this.">
+              {(["flash", "pro"] as const).map((m) => (
+                <button
+                  key={m}
+                  role="radio"
+                  aria-checked={artemisMode === m}
+                  disabled={artemisRunning}
+                  onClick={() => setArtemisMode(m)}
+                  className={`px-3 text-xs font-display tracking-wider flex items-center gap-1 transition disabled:opacity-60 ${
+                    artemisMode === m ? "bg-primary/20 text-primary" : "text-muted-foreground hover:text-primary"
+                  }`}
+                >
+                  {m === "flash" ? <Zap size={14} /> : <Brain size={14} />}
+                  {m.toUpperCase()}
+                </button>
+              ))}
             </div>
             <button
               onClick={voice.toggle}
