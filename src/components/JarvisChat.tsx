@@ -18,15 +18,14 @@ import {
   recordAndroidStatus,
   resetAndroidSession,
 } from "@/lib/android-session";
-
-/** Legacy ADB tools: allowed only when the primary Android Agent path cannot serve. */
-const LEGACY_ADB_TOOLS = new Set([
-  "launch_app",
-  "device_tap",
-  "device_type_text",
-  "device_keyevent",
-  "device_screenshot",
-]);
+import { ArtemisController } from "@/components/ArtemisController";
+import { runArtemis } from "@/lib/artemis/engine";
+import { createClientLLM } from "@/lib/artemis/client-llm";
+import { markTarget } from "@/lib/artemis/mark-target";
+import { getArtemisMode, setArtemisMode, useArtemisMode } from "@/lib/artemis/mode-store";
+import { routeRequest } from "@/lib/artemis/request-router";
+import type { ArtemisEvent, ConfirmRequest } from "@/lib/artemis/types";
+import { Zap, Brain } from "lucide-react";
 import { executeMemoryTool, isMemoryTool } from "@/lib/memory-tools";
 import { executeWebTool, isWebTool } from "@/lib/web-tools";
 import { relevantMemories } from "@/lib/memory-store";
@@ -89,9 +88,67 @@ export function JarvisChat({
   const scrollRef = useRef<HTMLDivElement>(null);
   // Lets the user stop a long autonomous run instead of waiting on a stalled one.
   const abortRef = useRef<AbortController | null>(null);
+  // ---- Artemis (Android control) state: driven only by engine events ----
+  const artemisMode = useArtemisMode();
+  const [artemisEvents, setArtemisEvents] = useState<ArtemisEvent[]>([]);
+  const [artemisRunning, setArtemisRunning] = useState(false);
+  const [artemisPending, setArtemisPending] = useState<ConfirmRequest | null>(null);
+  const confirmResolver = useRef<((ok: boolean) => void) | null>(null);
+  const artemisAbortRef = useRef<AbortController | null>(null);
+
   const stopRun = useCallback(() => {
     abortRef.current?.abort();
+    artemisAbortRef.current?.abort();
+    confirmResolver.current?.(false);
     setThinking("Stopping…");
+  }, []);
+
+  const answerConfirm = useCallback((ok: boolean) => {
+    const r = confirmResolver.current;
+    confirmResolver.current = null;
+    setArtemisPending(null);
+    r?.(ok);
+  }, []);
+
+  /** phone_task(goal, mode): hands the goal and the manually selected mode to Artemis. */
+  const runPhoneTask = useCallback(async (goal: string, parent?: AbortSignal): Promise<string> => {
+    const mode = getArtemisMode(); // read once; frozen for the run
+    const status = await executeTool("phone_agent_status", {});
+    if (status.startsWith("ERROR")) return `needs_user: the phone agent is not reachable (${status.slice(0, 200)}).`;
+    const snap = recordAndroidStatus(status);
+    if (!snap.online) return "needs_user: no NEXUS Android Agent is online.";
+    const ctrl = new AbortController();
+    artemisAbortRef.current = ctrl;
+    parent?.addEventListener("abort", () => ctrl.abort(), { once: true });
+    setArtemisEvents([]);
+    setArtemisRunning(true);
+    try {
+      const res = await runArtemis({
+        goal,
+        mode,
+        llm: createClientLLM({ signal: ctrl.signal, ai: settingsRef.current.ai }),
+        transport: (command, args, timeoutSec) =>
+          executeTool("phone_agent_command", { command, args, ...(timeoutSec ? { timeout_sec: timeoutSec } : {}) }),
+        advertised: [...snap.capabilities],
+        onEvent: (e) => {
+          setArtemisEvents((prev) => [...prev, e]);
+          if (e.kind === "action") logAgent({ kind: "tool", label: `artemis:${e.action}`, args: e.args, ok: true });
+        },
+        confirm: (req) =>
+          new Promise<boolean>((resolve) => {
+            if (ctrl.signal.aborted) return resolve(false);
+            confirmResolver.current = resolve;
+            setArtemisPending(req);
+          }),
+        signal: ctrl.signal,
+        markTarget,
+      });
+      return `${res.outcome}: ${res.summary}`;
+    } finally {
+      artemisAbortRef.current = null;
+      setArtemisRunning(false);
+      setArtemisPending(null);
+    }
   }, []);
 
 
@@ -313,6 +370,51 @@ export function JarvisChat({
       // Android retry budgets and the last outcome are per-run state.
       resetAndroidSession();
 
+      // ---- Android request router: NORMAL / ANDROID / AMBIGUOUS ----
+      const say = (content: string) => {
+        history = [...history, { role: "assistant", content, ts: Date.now() } as Msg];
+        commit(cid, history);
+      };
+      let handled = false;
+      try {
+        const recent = messagesRef.current
+          .slice(-6)
+          .map((m) => `${m.role}: ${typeof m.content === "string" ? m.content.slice(0, 300) : "[media]"}`)
+          .join("\n");
+        const route = await routeRequest(text, recent, async (system, user) => {
+          const r = await createClientLLM({ signal: ctrl.signal, ai: settingsRef.current.ai }).call(
+            "android-router",
+            [{ role: "system", content: system }, { role: "user", content: user }],
+            [],
+          );
+          return r.text;
+        });
+        logAgent({ kind: "status", label: "android-router", detail: `${route.decision} (${route.via})` });
+        if (route.decision === "AMBIGUOUS") {
+          say("Should I do this **on your phone** (Android control), or just answer / handle it here? Reply \"on my phone\" to let me control it.");
+          handled = true;
+        }
+        if (route.decision === "ANDROID") {
+          setThinking(`Artemis (${getArtemisMode().toUpperCase()}) is controlling your phone…`);
+          const out = await runPhoneTask(text, ctrl.signal);
+          const [outcome, ...rest] = out.split(": ");
+          const label = outcome === "done" ? "Done" : outcome === "stopped" ? "Stopped" : outcome === "needs_user" ? "Needs you" : "Stuck";
+          say(`**Phone task — ${label}.** ${rest.join(": ")}`);
+          if (chatIdRef.current === cid) voiceRef.current?.speak(`${label}. ${rest.join(": ")}`);
+          handled = true;
+        }
+      } catch (e) {
+        if (!ctrl.signal.aborted) say(`**System error:** ${e instanceof Error ? e.message : String(e)}`);
+        else say("**Phone task — Stopped.** Stopped by you. The task was not completed.");
+        handled = true;
+      }
+      if (handled) {
+        abortRef.current = null;
+        if (chatIdRef.current === cid) setThinking("");
+        setBusy(false);
+        return;
+      }
+
       try {
         const result = await runAgent({
           initialHistory: history,
@@ -324,8 +426,12 @@ export function JarvisChat({
           // A finish_task report cannot outrank a failed Android command.
           checkCompletion: checkAndroidCompletion,
 
-
           executeTool: async (fname, args): Promise<ToolExecution> => {
+            if (fname === "phone_task") {
+              const goal = typeof args["goal"] === "string" ? args["goal"] : text;
+              const out = await runPhoneTask(goal, ctrl.signal);
+              return { content: out };
+            }
             // Coding defaults: long builds/tests must not die at the 120s default.
             const cfg = settingsRef.current.coding;
             if (
@@ -375,16 +481,6 @@ export function JarvisChat({
               if (!retry.allow) {
                 logAgent({ kind: "error", label: fname, args, ok: false, detail: retry.error });
                 return { content: `ERROR: ${retry.error}` };
-              }
-            }
-            // ADB stays legacy: never silently take over from a live Android Agent.
-            if (LEGACY_ADB_TOOLS.has(fname)) {
-              const snapshot = getAndroidSnapshot();
-              if (snapshot.online && args["force_adb"] !== true) {
-                const msg =
-                  "ERROR: ADB_NOT_PRIMARY: a NEXUS Android Agent is online, so use the phone_* path (phone_agent_command) instead of the legacy ADB tools. Only use ADB when the user explicitly asks for it, no agent is online, or the capability is genuinely absent from the phone's advertised list — and say so.";
-                logAgent({ kind: "error", label: fname, args, ok: false, detail: msg });
-                return { content: msg };
               }
             }
             // Security / Computer / Devices / Memory / Coding settings are enforced here.
@@ -600,6 +696,15 @@ export function JarvisChat({
                 expandTools={settings.chat.expandToolCards}
               />
             ))}
+            {artemisEvents.length > 0 && (
+              <ArtemisController
+                events={artemisEvents}
+                pending={artemisPending}
+                onConfirm={answerConfirm}
+                onStop={stopRun}
+                running={artemisRunning}
+              />
+            )}
             {thinking && (
               <div className="flex items-center gap-2 text-primary text-sm">
                 <span className="animate-blink">●</span>
@@ -628,6 +733,23 @@ export function JarvisChat({
                 rows={2}
                 className="w-full resize-none rounded-md bg-input/60 border border-border px-4 py-3 font-mono text-sm text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:border-primary focus:shadow-[0_0_0_3px_var(--jarvis-glow-soft)] transition"
               />
+            </div>
+            <div role="radiogroup" aria-label="Artemis phone mode" className="flex h-12 rounded-md border border-border overflow-hidden" title="Artemis phone-control mode. Only you change this.">
+              {(["flash", "pro"] as const).map((m) => (
+                <button
+                  key={m}
+                  role="radio"
+                  aria-checked={artemisMode === m}
+                  disabled={artemisRunning}
+                  onClick={() => setArtemisMode(m)}
+                  className={`px-3 text-xs font-display tracking-wider flex items-center gap-1 transition disabled:opacity-60 ${
+                    artemisMode === m ? "bg-primary/20 text-primary" : "text-muted-foreground hover:text-primary"
+                  }`}
+                >
+                  {m === "flash" ? <Zap size={14} /> : <Brain size={14} />}
+                  {m.toUpperCase()}
+                </button>
+              ))}
             </div>
             <button
               onClick={voice.toggle}

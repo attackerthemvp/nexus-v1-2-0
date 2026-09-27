@@ -91,7 +91,7 @@ RULES: never invent endpoints, hosts or commands that are not registered — if 
 
 ## ANDROID PHONE CONTROL 📱
 Real chain: you → NEXUS PC Agent (local agent) → NEXUS Android Agent app on the phone → the device.
-The NEXUS Android Agent is the PRIMARY Android path (no cable, no ADB). ADB is LEGACY FALLBACK.
+The NEXUS Android Agent is the ONLY Android path. There is no ADB anywhere in NEXUS.
 
 PRIMARY — NEXUS Android Agent (phone_* tools):
 - phone_agent_status(): which phones are registered, their model/Android version/capabilities, whether they are online ("connected"), and the queue depth. Use this to answer "is my Android connected/what's its status".
@@ -100,18 +100,12 @@ PRIMARY — NEXUS Android Agent (phone_* tools):
 - phone_agent_command(command, args?, timeout_sec?): runs ONE capability from the phone app's allow-list. There is no shell on the phone. Get the exact capability names from phone_agent_status().agents[].capabilities first — never invent one. Unknown command → 400 unsupported_command; no phone → 503; phone silent → 504.
 
 ROUTING RULES (follow exactly):
-1. Any Android request → use the phone_* tool above. Never translate an Android request into ADB just to discover or inspect the device.
-2. Do NOT silently fall back to ADB when an Android Agent capability exists. Use the legacy ADB device_* tools only when (a) the user explicitly asks for ADB, or (b) phone_agent_status() shows no online agent / the capability is genuinely absent from the phone's allow-list AND ADB can legitimately do it — and say which path you used and why.
-3. Report the VERIFIED state from tool output. Never claim a phone is connected or a command succeeded without a tool result. Distinguish these states and keep them separate: NEXUS (you) online · PC Agent reachable (local agent) · Android Agent registered/online · Android device available · command executed. Report them as returned, e.g. "PC Agent: LINKED · Android Agent: CONNECTED (Pixel 8, Android 15) · command: OK".
+1. Multi-step phone tasks (open an app AND do something, message someone, navigate, fill in, tap through screens) → call phone_task(goal). It hands the goal to the Artemis engine, which plans, observes, acts, validates and verifies on the phone using the user's selected Flash/Pro mode. Never pick or mention a mode yourself. Report its final outcome (done / stuck / needs_user / stopped) honestly.
+2. Simple status questions ("is my phone connected", "ping my phone", "phone info") → phone_agent_status / phone_ping / phone_info.
+3. Report the VERIFIED state from tool output. Never claim a phone action succeeded without a tool result.
 4. On an error, keep the real detail (503 not connected / 504 no answer / 400 unsupported_command) and explain it in one line, with the concrete fix (open the NEXUS Android Agent app, point it at the PC's Tailscale address + token, press Start).
 
 ${ANDROID_INTENT_RULES}
-
-LEGACY FALLBACK — ADB (device_* tools, requires adb on the PC):
-- device_status(): list ADB-connected devices. device_connect(host, port=5555): pair over ADB TCP/IP — once paired, USB is NOT required. device_disconnect(host?).
-- device_info(serial?), launch_app(package_name, serial?), device_screenshot(serial?), device_tap(x, y, serial?), device_type_text(text, serial?), device_keyevent(keycode, serial?) — keycodes: 3 HOME, 4 BACK, 26 POWER, 66 ENTER.
-- If any device_* tool reports a missing route / stale agent, call android_capabilities() and relay exactly what it says (agent version, adb path, devices). Never claim adb is broken without checking it.
-
 
 ## PERMANENT MEMORY 🧠
 You have a permanent memory that is shared across ALL chats (separate from this conversation's history). Relevant memories are injected below as MEMORY CONTEXT when they apply.
@@ -366,134 +360,17 @@ export const Route = createFileRoute("/api/chat")({
             { type: "function", function: { name: "web_fetch", description: "Fetch a URL natively and return its readable text content. Use after web_search to read a page.", parameters: { type: "object", properties: { url: { type: "string" }, max_chars: { type: "number", description: "Max characters of text to return (default 12000)" } }, required: ["url"] } } },
             
             // Android Tools
-            { type: "function", function: { name: "device_status", description: "List connected Android devices.", parameters: { type: "object", properties: {} } } },
-            {
-              type: "function",
-              function: {
-                name: "device_info",
-                description: "Retrieve specifications and states (model, battery, android version, screen resolution) for a connected Android device.",
-                parameters: {
-                  type: "object",
-                  properties: {
-                    serial: { type: "string", description: "Optional serial number of the device. Defaults to first connected device." }
-                  }
-                }
-              }
-            },
-            {
-              type: "function",
-              function: {
-                name: "launch_app",
-                description: "Launch an Android app on the device by its package name (e.g. com.android.settings).",
-                parameters: {
-                  type: "object",
-                  properties: {
-                    package_name: { type: "string", description: "The Android app package name to launch" },
-                    serial: { type: "string", description: "Optional serial number of the device." }
-                  },
-                  required: ["package_name"]
-                }
-              }
-            },
-            {
-              type: "function",
-              function: {
-                name: "device_screenshot",
-                description: "Take a screenshot of the connected Android device's screen and return it as base64 PNG data.",
-                parameters: {
-                  type: "object",
-                  properties: {
-                    serial: { type: "string", description: "Optional serial number of the device." }
-                  }
-                }
-              }
-            },
-            {
-              type: "function",
-              function: {
-                name: "device_tap",
-                description: "Tap the screen of the connected Android device at coordinate (x, y).",
-                parameters: {
-                  type: "object",
-                  properties: {
-                    x: { type: "integer", description: "The x pixel coordinate to tap" },
-                    y: { type: "integer", description: "The y pixel coordinate to tap" },
-                    serial: { type: "string", description: "Optional serial number of the device." }
-                  },
-                  required: ["x", "y"]
-                }
-              }
-            },
-            {
-              type: "function",
-              function: {
-                name: "device_type_text",
-                description: "Type text on the connected Android device.",
-                parameters: {
-                  type: "object",
-                  properties: {
-                    text: { type: "string", description: "The text to type" },
-                    serial: { type: "string", description: "Optional serial number of the device." }
-                  },
-                  required: ["text"]
-                }
-              }
-            },
-            {
-              type: "function",
-              function: {
-                name: "device_keyevent",
-                description: "Send a hardware keyevent to the connected Android device (e.g. 4 for BACK, 3 for HOME).",
-                parameters: {
-                  type: "object",
-                  properties: {
-                    keycode: { type: "integer", description: "The android keyevent keycode to send" },
-                    serial: { type: "string", description: "Optional serial number of the device." }
-                  },
-                  required: ["keycode"]
-                }
-              }
-            },
-            {
-              type: "function",
-              function: {
-                name: "android_capabilities",
-                description: "Diagnostics for Android/ADB control: reports the local agent version, whether adb was found, which Android tools this agent build exposes, and the currently connected devices. Call this first when any device_* tool fails or returns a 404/stale-agent error.",
-                parameters: { type: "object", properties: {} }
-              }
-            },
-            {
-              type: "function",
-              function: {
-                name: "device_connect",
-                description: "Pair with an Android device over ADB TCP/IP (wireless). After this succeeds no USB cable is required. Ask the user for the phone's LAN IP if unknown.",
-                parameters: {
-                  type: "object",
-                  properties: {
-                    host: { type: "string", description: "Device IP address or hostname on the LAN" },
-                    port: { type: "integer", description: "ADB TCP port, default 5555" }
-                  },
-                  required: ["host"]
-                }
-              }
-            },
-            {
-              type: "function",
-              function: {
-                name: "device_disconnect",
-                description: "Disconnect an ADB TCP/IP Android device, or all of them when host is omitted.",
-                parameters: {
-                  type: "object",
-                  properties: {
-                    host: { type: "string" },
-                    port: { type: "integer", description: "ADB TCP port, default 5555" }
-                  }
-                }
-              }
-            },
 
             // NEXUS Android Agent (on-device app, via the PC Agent over Tailscale).
             // PRIMARY Android path — no ADB, no USB.
+            {
+              type: "function",
+              function: {
+                name: "phone_task",
+                description: "Run a multi-step task on the user's Android phone with the Artemis engine (plan, observe, act, validate, check). The user's manually selected Flash/Pro mode is applied automatically. Returns 'done|stuck|needs_user|stopped: summary'.",
+                parameters: { type: "object", properties: { goal: { type: "string", description: "The user's goal, unchanged, in their words" } }, required: ["goal"] },
+              },
+            },
             {
               type: "function",
               function: {
