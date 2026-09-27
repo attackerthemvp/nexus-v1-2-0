@@ -375,6 +375,7 @@ export function JarvisChat({
         history = [...history, { role: "assistant", content, ts: Date.now() } as Msg];
         commit(cid, history);
       };
+      let handled = false;
       try {
         const recent = messagesRef.current
           .slice(-6)
@@ -391,7 +392,7 @@ export function JarvisChat({
         logAgent({ kind: "status", label: "android-router", detail: `${route.decision} (${route.via})` });
         if (route.decision === "AMBIGUOUS") {
           say("Should I do this **on your phone** (Android control), or just answer / handle it here? Reply \"on my phone\" to let me control it.");
-          return;
+          handled = true;
         }
         if (route.decision === "ANDROID") {
           setThinking(`Artemis (${getArtemisMode().toUpperCase()}) is controlling your phone…`);
@@ -400,20 +401,16 @@ export function JarvisChat({
           const label = outcome === "done" ? "Done" : outcome === "stopped" ? "Stopped" : outcome === "needs_user" ? "Needs you" : "Stuck";
           say(`**Phone task — ${label}.** ${rest.join(": ")}`);
           if (chatIdRef.current === cid) voiceRef.current?.speak(`${label}. ${rest.join(": ")}`);
-          return;
+          handled = true;
         }
       } catch (e) {
         if (!ctrl.signal.aborted) say(`**System error:** ${e instanceof Error ? e.message : String(e)}`);
         else say("**Phone task — Stopped.** Stopped by you. The task was not completed.");
-        return;
-      } finally {
-        if (abortRef.current === ctrl && (ctrl.signal.aborted || !history.at(-1) || history.at(-1)!.role === "assistant")) {
-          // handled path: release busy state
-        }
+        handled = true;
       }
-      if (history.at(-1)?.role === "assistant") {
+      if (handled) {
         abortRef.current = null;
-        setThinking("");
+        if (chatIdRef.current === cid) setThinking("");
         setBusy(false);
         return;
       }
@@ -484,16 +481,6 @@ export function JarvisChat({
               if (!retry.allow) {
                 logAgent({ kind: "error", label: fname, args, ok: false, detail: retry.error });
                 return { content: `ERROR: ${retry.error}` };
-              }
-            }
-            // ADB stays legacy: never silently take over from a live Android Agent.
-            if (LEGACY_ADB_TOOLS.has(fname)) {
-              const snapshot = getAndroidSnapshot();
-              if (snapshot.online && args["force_adb"] !== true) {
-                const msg =
-                  "ERROR: ADB_NOT_PRIMARY: a NEXUS Android Agent is online, so use the phone_* path (phone_agent_command) instead of the legacy ADB tools. Only use ADB when the user explicitly asks for it, no agent is online, or the capability is genuinely absent from the phone's advertised list — and say so.";
-                logAgent({ kind: "error", label: fname, args, ok: false, detail: msg });
-                return { content: msg };
               }
             }
             // Security / Computer / Devices / Memory / Coding settings are enforced here.
