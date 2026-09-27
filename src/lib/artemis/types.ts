@@ -63,7 +63,7 @@ export type ArtemisEvent = { id: string; ts: number } & (
   | { kind: "replan"; step: number; approved: boolean; feedback: string }
   | { kind: "wait"; step: number; ms: number }
   | { kind: "confirm_request"; request: ConfirmRequest }
-  | { kind: "confirm_result"; id: string; approved: boolean }
+  | { kind: "confirm_result"; requestId: string; approved: boolean }
   | { kind: "llm"; agent: string; provider: string; model: string }
   | { kind: "terminal"; outcome: ArtemisOutcome; summary: string }
 );

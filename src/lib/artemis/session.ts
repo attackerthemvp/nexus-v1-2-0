@@ -92,7 +92,7 @@ async function gate(ctx: ArtemisContext, action: string, args: Record<string, un
   ctx.emit({ kind: "stage", stage: "awaiting_confirmation", step: ctx.step });
   ctx.emit({ kind: "confirm_request", request: req });
   const approved = await ctx.confirm(req);
-  ctx.emit({ kind: "confirm_result", id: req.id, approved });
+  ctx.emit({ kind: "confirm_result", requestId: req.id, approved });
   checkCancel(ctx);
   return approved;
 }
