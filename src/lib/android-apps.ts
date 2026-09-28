@@ -331,7 +331,7 @@ CONTROLLER ENFORCEMENT (these are validated in code, not just advice):
 - Wrong argument names are REJECTED (INVALID_ARGUMENTS); open_app without a real package id is REJECTED (UNRESOLVED_APP). Malformed tool JSON is REJECTED (INVALID_TOOL_ARGUMENTS) and nothing runs — resend valid JSON.
 - Repeating a failed state-changing command without checking anything is REJECTED (ANDROID_BLIND_RETRY), and the same failing command is refused after two attempts (ANDROID_RETRY_EXHAUSTED).
 - A finish_task report that claims success after a failed Android command is REJECTED (FALSE_COMPLETION).
-- Legacy ADB device_* tools are REJECTED while an Android Agent is online (ADB_NOT_PRIMARY).
+- There is no ADB path: every Android action goes through the NEXUS Android Agent.
 - SPEED: one command + ONE verification. Do not chain foreground_app + screen_read + wait_for_app unless the evidence actually disagrees.`;
 
 // ---------------------------------------------------------------------------
